@@ -1,0 +1,17 @@
+[package]
+name = "libjdb"
+version = "0.1.0"
+authors = ["John Gallagher <john@gllghr.com>", "Serapheim Dimitropoulos <fill-me-in@or-remove.me>" ]
+edition = "2018"
+
+
+[[bin]]
+name = "jdwp-test"
+path = "src/jdwp-test/main.rs"
+
+[[bin]]
+name = "hprof-test"
+path = "src/hprof-test/main.rs"
+
+[dependencies]
+byteorder = "1.3"
