@@ -3,7 +3,7 @@ use num_traits::cast::FromPrimitive;
 use std::cell::{Cell, RefCell};
 use std::convert::TryInto;
 use std::io::Result;
-use std::io::{Cursor, Read, Write};
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::net::ToSocketAddrs;
 
@@ -23,7 +23,7 @@ impl JdwpConnection {
         stream.write_all(b"JDWP-Handshake")?;
         // TODO do we need to flush?
         let mut buf = [0; 128];
-        let n = stream.read(&mut buf)?;
+        let _n = stream.read(&mut buf)?;
         // TODO check that response is what we expect, correct len, etc.
 
         let mut conn = JdwpConnection {
@@ -57,7 +57,7 @@ impl JdwpConnection {
     }
 
     fn execute_cmd(&self, command_set: u8, command: u8, data: &[u8]) -> Result<Vec<u8>> {
-        let mut stream = &mut *self.stream.borrow_mut();
+        let stream = &mut *self.stream.borrow_mut();
         let id = self.next_id.get();
         self.next_id.set(id + 1);
 
@@ -71,9 +71,9 @@ impl JdwpConnection {
 
         let len = stream.read_u32::<BigEndian>()? - 11; // 11 is size of header
         let _id = stream.read_u32::<BigEndian>()?; // TODO check that id is what we expect
-        let flags = stream.read_u8()?; // TODO check response flag
+        let _flags = stream.read_u8()?; // TODO check response flag
         let error_code = stream.read_u16::<BigEndian>()?;
-        if (error_code != 0) {
+        if error_code != 0 {
             panic!("Error code: {}", error_code);
         }
         let mut buf = vec![0; len as usize];
@@ -120,7 +120,7 @@ impl Serialize for &str {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()> {
         let utf8 = self.as_bytes();
         writer.write_u32::<BigEndian>(utf8.len().try_into().unwrap())?;
-        writer.write_all(utf8);
+        writer.write_all(utf8).unwrap();
         Ok(())
     }
 }
@@ -268,8 +268,9 @@ macro_rules! command_set {
       } )+
     ) => {
         pub mod $cmd_set_name {
+            #[allow(unused_imports)]
             use super::{Deserialize, JdwpConnection, Serialize, Location};
-            use std::io::{Cursor, Read, Write};
+            use std::io::{Cursor, Read};
             use std::io::Result;
 
             $(
@@ -282,6 +283,7 @@ macro_rules! command_set {
             }
 
             impl Deserialize for $resp_name {
+                #[allow(unused_variables)]
                 fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
                     Ok($resp_name {
                         $(
@@ -311,6 +313,7 @@ macro_rules! command_set {
             )*
 
             pub fn $cmd(conn: &JdwpConnection $(, $arg: $arg_ty )* ) -> Result<$resp_name> {
+                #[allow(unused_mut)]
                 let mut buf = vec![];
                 $(
                     $arg.serialize(&mut buf)?;
