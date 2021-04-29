@@ -5,6 +5,7 @@ use std::net::TcpStream;
 use std::io::Result;
 use std::io::{Cursor, Read, Write};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use num_traits::cast::FromPrimitive;
 
 pub struct JdwpConnection {
     stream: RefCell<TcpStream>, // TODO wrap in buffered stream?
@@ -164,7 +165,7 @@ impl Deserialize for u64 {
 impl Deserialize for String {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
         let str_len = reader.read_u32::<BigEndian>()?;
-    
+
         let mut buf = vec![0; str_len as usize];
         reader.read_exact(&mut buf)?;
         // TODO handle utf8 conversion errors, which will involve changing return
@@ -186,9 +187,48 @@ impl<T: Deserialize> Deserialize for Vec<T> {
     }
 }
 
+// TODO move me
+use std::{error::Error, fmt};
+
+#[derive(Debug)]
+struct JdwpError {
+    msg: String
+}
+
+impl Error for JdwpError {}
+
+impl fmt::Display for JdwpError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.msg)
+    }
+}
+
+// TODO imports?
+fn protocol_err(msg: &str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, JdwpError {
+        msg: format!("JDWP Protocol Error: {}", msg)
+    })
+}
+
+
+#[derive(Debug, FromPrimitive)]
+pub enum TypeTag {
+    Class = 1,
+    Interface = 2,
+    Array = 3
+}
+
+impl Deserialize for TypeTag {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        let val = reader.read_u8()?;
+        FromPrimitive::from_u8(val).ok_or_else(
+            || protocol_err(&format!("{} is not a valid Type Tag", val)))
+    }
+}
+
 #[derive(Debug)]
 pub struct Location {
-    pub type_tag: u8, // TODO use special type tag field
+    pub type_tag: TypeTag,
     pub class_id: u64, // TODO
     pub method_id: u64, // TODO
     pub location_idx: u64,
