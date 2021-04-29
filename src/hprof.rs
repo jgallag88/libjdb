@@ -19,15 +19,15 @@
 //
 // XXX - Add other resources JVM and JNI spec.
 //
-use num_enum::TryFromPrimitive;
+
+use num_traits::cast::FromPrimitive;
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::mem;
 
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, FromPrimitive)]
 #[repr(u8)]
 enum RecordTag {
     Utf8String = 0x01,
@@ -48,7 +48,7 @@ enum RecordTag {
     HeapDumpEnd = 0x2C,
 }
 
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, FromPrimitive)]
 #[repr(u8)]
 enum FieldTag {
     ArrayObject = 0x01,
@@ -63,7 +63,7 @@ enum FieldTag {
     Long = 0x0B,
 }
 
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, FromPrimitive)]
 #[repr(u8)]
 enum DataDumpSubRecordTag {
     RootUnknown = 0xFF,
@@ -117,16 +117,12 @@ struct Record {
     bytes: u32,
 }
 
-use std::io::Read;
-use std::io::Seek;
-use std::io::SeekFrom;
-
 fn parse_record(parser: &mut HprofParser) -> Record {
     let mut tag_buf = [0u8; 1];
     let mut u32_buf = [0u8; 4];
 
     parser.reader.read_exact(&mut tag_buf).unwrap();
-    let tag = RecordTag::try_from(tag_buf[0]).unwrap();
+    let tag: RecordTag = FromPrimitive::from_u8(tag_buf[0]).unwrap();
     parser.reader.read_exact(&mut u32_buf).unwrap();
     let time = u32::from_be_bytes(u32_buf);
     parser.reader.read_exact(&mut u32_buf).unwrap();
@@ -471,12 +467,12 @@ impl HprofParser {
 
     #[allow(dead_code)]
     fn parse_subrecord_tag(&mut self) -> DataDumpSubRecordTag {
-        DataDumpSubRecordTag::try_from(self.parse_u8()).unwrap()
+        FromPrimitive::from_u8(self.parse_u8()).unwrap()
     }
 
     #[allow(dead_code)]
     fn parse_field_type_tag(&mut self) -> FieldTag {
-        FieldTag::try_from(self.parse_u8()).unwrap()
+        FromPrimitive::from_u8(self.parse_u8()).unwrap()
     }
 
     #[allow(dead_code)]
