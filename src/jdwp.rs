@@ -1,11 +1,11 @@
-use std::cell::{Cell, RefCell};
-use std::convert::TryInto;
-use std::net::ToSocketAddrs;
-use std::net::TcpStream;
-use std::io::Result;
-use std::io::{Cursor, Read, Write};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use num_traits::cast::FromPrimitive;
+use std::cell::{Cell, RefCell};
+use std::convert::TryInto;
+use std::io::Result;
+use std::io::{Cursor, Read, Write};
+use std::net::TcpStream;
+use std::net::ToSocketAddrs;
 
 pub struct JdwpConnection {
     stream: RefCell<TcpStream>, // TODO wrap in buffered stream?
@@ -14,7 +14,7 @@ pub struct JdwpConnection {
     method_id_size: u8,
     object_id_size: u8,
     reference_type_id_size: u8,
-    frame_id_size: u8
+    frame_id_size: u8,
 }
 
 impl JdwpConnection {
@@ -25,7 +25,6 @@ impl JdwpConnection {
         let mut buf = [0; 128];
         let n = stream.read(&mut buf)?;
         // TODO check that response is what we expect, correct len, etc.
-        
 
         let mut conn = JdwpConnection {
             stream: RefCell::new(stream),
@@ -57,10 +56,10 @@ impl JdwpConnection {
         Ok(conn)
     }
 
-    fn execute_cmd(&self, command_set: u8, command: u8,  data: &[u8]) -> Result<Vec<u8>> {
+    fn execute_cmd(&self, command_set: u8, command: u8, data: &[u8]) -> Result<Vec<u8>> {
         let mut stream = &mut *self.stream.borrow_mut();
         let id = self.next_id.get();
-        self.next_id.set(id+1);
+        self.next_id.set(id + 1);
 
         let len = data.len() + 11; // 11 is size of header
         stream.write_u32::<BigEndian>(len.try_into().unwrap())?;
@@ -82,7 +81,6 @@ impl JdwpConnection {
         Ok(buf)
     }
 }
-
 
 trait Serialize {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()>;
@@ -129,7 +127,8 @@ impl Serialize for &str {
 
 trait Deserialize {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self>
-        where Self: std::marker::Sized;
+    where
+        Self: std::marker::Sized;
 }
 
 impl Deserialize for u8 {
@@ -192,7 +191,7 @@ use std::{error::Error, fmt};
 
 #[derive(Debug)]
 struct JdwpError {
-    msg: String
+    msg: String,
 }
 
 impl Error for JdwpError {}
@@ -205,31 +204,33 @@ impl fmt::Display for JdwpError {
 
 // TODO imports?
 fn protocol_err(msg: &str) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::InvalidData, JdwpError {
-        msg: format!("JDWP Protocol Error: {}", msg)
-    })
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        JdwpError {
+            msg: format!("JDWP Protocol Error: {}", msg),
+        },
+    )
 }
-
 
 #[derive(Debug, FromPrimitive)]
 pub enum TypeTag {
     Class = 1,
     Interface = 2,
-    Array = 3
+    Array = 3,
 }
 
 impl Deserialize for TypeTag {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
         let val = reader.read_u8()?;
-        FromPrimitive::from_u8(val).ok_or_else(
-            || protocol_err(&format!("{} is not a valid Type Tag", val)))
+        FromPrimitive::from_u8(val)
+            .ok_or_else(|| protocol_err(&format!("{} is not a valid Type Tag", val)))
     }
 }
 
 #[derive(Debug)]
 pub struct Location {
     pub type_tag: TypeTag,
-    pub class_id: u64, // TODO
+    pub class_id: u64,  // TODO
     pub method_id: u64, // TODO
     pub location_idx: u64,
 }

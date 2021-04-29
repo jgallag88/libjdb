@@ -1,7 +1,7 @@
-use libjdb::jdwp::JdwpConnection;
-use libjdb::jdwp::virtual_machine;
 use libjdb::jdwp::reference_type;
 use libjdb::jdwp::thread_reference;
+use libjdb::jdwp::virtual_machine;
+use libjdb::jdwp::JdwpConnection;
 
 fn main() {
     let j_conn = JdwpConnection::new("localhost:12345").unwrap();
@@ -23,15 +23,21 @@ fn main() {
 }
 
 fn print_stacktrace(id: u64, conn: &JdwpConnection) {
-        let name_reply = thread_reference::name(conn, id).unwrap();
-        println!("Thread {}: {}", id, name_reply.name);
-        let frames_reply = thread_reference::frames(conn, id, 0, -1).unwrap();
-        for frame in frames_reply.frames {
-            let class_sig = reference_type::signature(conn, frame.location.class_id).unwrap().signature;
-            let method_name = get_method_name(conn, frame.location.class_id, frame.location.method_id);
-            println!("    {}.{}()", signature_to_classname(&class_sig), method_name);
-        }
-        println!("");
+    let name_reply = thread_reference::name(conn, id).unwrap();
+    println!("Thread {}: {}", id, name_reply.name);
+    let frames_reply = thread_reference::frames(conn, id, 0, -1).unwrap();
+    for frame in frames_reply.frames {
+        let class_sig = reference_type::signature(conn, frame.location.class_id)
+            .unwrap()
+            .signature;
+        let method_name = get_method_name(conn, frame.location.class_id, frame.location.method_id);
+        println!(
+            "    {}.{}()",
+            signature_to_classname(&class_sig),
+            method_name
+        );
+    }
+    println!("");
 }
 
 fn signature_to_classname(sig: &str) -> String {
