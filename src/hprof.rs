@@ -209,7 +209,7 @@ fn parse_record(parser: &mut HprofParser) -> Record {
             println!("tag: {:?} of size {:?} bytes", tag, bytes);
         }
     }
-        // XXX: For Testing
+    // XXX: For Testing
     Record { tag, time, bytes }
 }
 
@@ -292,7 +292,10 @@ fn parse_heap_dump_records(parser: &mut HprofParser, dump_segment_size: u32) {
         "current_pos ({}) vs segment_end ({})",
         current_position, dump_segment_end
     );
-    println!("sub-entries: {} class {} instance {} obj array {} p array", cd_n, id_n, oad_n, pad_n);
+    println!(
+        "sub-entries: {} class {} instance {} obj array {} p array",
+        cd_n, id_n, oad_n, pad_n
+    );
 }
 
 // The above is super slow as is...
@@ -326,9 +329,14 @@ fn parse_primitive_array_subrecord(parser: &mut HprofParser) {
         FieldTag::Long => 8,
         FieldTag::NormalObject => 8,
         FieldTag::Short => 2,
-        _ => {panic!()}
+        _ => {
+            panic!()
+        }
     };
-    let _off = parser.reader.seek(SeekFrom::Current(i64::from(n_elements * element_bytes))).unwrap();
+    let _off = parser
+        .reader
+        .seek(SeekFrom::Current(i64::from(n_elements * element_bytes)))
+        .unwrap();
 }
 
 #[allow(dead_code)]
@@ -340,7 +348,10 @@ fn parse_object_array_subrecord(parser: &mut HprofParser) {
 
     // TODO: elements
     // XXX: Assume
-    let _off = parser.reader.seek(SeekFrom::Current(i64::from(n_elements * 8))).unwrap();
+    let _off = parser
+        .reader
+        .seek(SeekFrom::Current(i64::from(n_elements * 8)))
+        .unwrap();
 }
 
 #[allow(dead_code)]
@@ -351,7 +362,10 @@ fn parse_instance_subrecord(parser: &mut HprofParser) {
     let bytes_left = parser.parse_u32();
 
     // TODO: Parse instance fields
-    let _off = parser.reader.seek(SeekFrom::Current(i64::from(bytes_left))).unwrap();
+    let _off = parser
+        .reader
+        .seek(SeekFrom::Current(i64::from(bytes_left)))
+        .unwrap();
 }
 
 #[allow(dead_code)]
@@ -543,7 +557,7 @@ impl HprofParser {
             strname_id,
         }
     }
-        fn parse_unload_class_record(&mut self) -> UnloadClassRecord {
+    fn parse_unload_class_record(&mut self) -> UnloadClassRecord {
         UnloadClassRecord {
             serial_num: self.parse_u32(),
         }
