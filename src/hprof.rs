@@ -325,9 +325,7 @@ fn parse_primitive_array_subrecord(parser: &mut HprofParser) {
         FieldTag::Long => 8,
         FieldTag::NormalObject => 8,
         FieldTag::Short => 2,
-        _ => {
-            panic!()
-        }
+        _ => panic!(),
     };
     let _off = parser
         .reader

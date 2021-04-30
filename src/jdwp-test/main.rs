@@ -4,6 +4,12 @@ use libjdb::jdwp::virtual_machine;
 use libjdb::jdwp::JdwpConnection;
 
 fn main() {
+    {
+        let jvm = libjdb::attach_live("localhost:12345").unwrap();
+        for thread in jvm.all_threads().unwrap() {
+            println!("Thread {}", thread.name().unwrap());
+        }
+    }
     let j_conn = JdwpConnection::new("localhost:12345").unwrap();
     println!("{:?}", virtual_machine::version(&j_conn).unwrap());
     //let v = virtual_machine::all_classes(&j_conn).unwrap();

@@ -7,6 +7,9 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::net::ToSocketAddrs;
 
+use crate::model::JavaVirtualMachine;
+use crate::model::ThreadReference;
+
 pub struct JdwpConnection {
     stream: RefCell<TcpStream>, // TODO wrap in buffered stream?
     next_id: Cell<u32>,
@@ -79,6 +82,44 @@ impl JdwpConnection {
         let mut buf = vec![0; len as usize];
         stream.read_exact(&mut buf)?;
         Ok(buf)
+    }
+}
+
+pub struct JdwpJavaVirtualMachine {
+    conn: Rc<JdwpConnection>,
+}
+
+impl JdwpJavaVirtualMachine {
+    pub fn new(conn: JdwpConnection) -> Self {
+        JdwpJavaVirtualMachine {
+            conn: Rc::new(conn),
+        }
+    }
+}
+
+impl JavaVirtualMachine for JdwpJavaVirtualMachine {
+    fn all_threads(&self) -> Result<Vec<Box<dyn ThreadReference>>> {
+        // TODO use iterator/map
+        let mut threads = vec![];
+        for id in virtual_machine::all_threads(self.conn.as_ref())?.threads {
+            let x: Box<dyn ThreadReference> = Box::new(JdwpThreadReference {
+                conn: self.conn.clone(),
+                thread_id: id,
+            });
+            threads.push(x);
+        }
+        Ok(threads)
+    }
+}
+
+struct JdwpThreadReference {
+    conn: Rc<JdwpConnection>,
+    thread_id: u64, // TODO should have a threadid type? or is this the thread id type?
+}
+
+impl ThreadReference for JdwpThreadReference {
+    fn name(&self) -> Result<String> {
+        Ok(thread_reference::name(self.conn.as_ref(), self.thread_id)?.name)
     }
 }
 
@@ -187,6 +228,7 @@ impl<T: Deserialize> Deserialize for Vec<T> {
 }
 
 // TODO move me
+use std::rc::Rc;
 use std::{error::Error, fmt};
 
 #[derive(Debug)]
