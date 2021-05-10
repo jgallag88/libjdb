@@ -7,8 +7,8 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::net::ToSocketAddrs;
 
-use crate::model::JavaVirtualMachine;
 use crate::model::ThreadReference;
+use crate::model::{JavaVirtualMachine, Method, ReferenceType, StackFrame, TypeComponent};
 
 pub struct JdwpConnection {
     stream: RefCell<TcpStream>, // TODO wrap in buffered stream?
@@ -77,7 +77,10 @@ impl JdwpConnection {
         let _flags = stream.read_u8()?; // TODO check response flag
         let error_code = stream.read_u16::<BigEndian>()?;
         if error_code != 0 {
-            panic!("Error code: {}", error_code);
+            return Err(protocol_err(&format!(
+                "Error from JDWP target, code {}",
+                error_code
+            )));
         }
         let mut buf = vec![0; len as usize];
         stream.read_exact(&mut buf)?;
@@ -98,17 +101,33 @@ impl JdwpJavaVirtualMachine {
 }
 
 impl JavaVirtualMachine for JdwpJavaVirtualMachine {
-    fn all_threads(&self) -> Result<Vec<Box<dyn ThreadReference>>> {
-        // TODO use iterator/map
-        let mut threads = vec![];
-        for id in virtual_machine::all_threads(self.conn.as_ref())?.threads {
-            let x: Box<dyn ThreadReference> = Box::new(JdwpThreadReference {
-                conn: self.conn.clone(),
-                thread_id: id,
-            });
-            threads.push(x);
-        }
-        Ok(threads)
+    fn all_threads<'a>(&'a self) -> Result<Vec<Box<dyn ThreadReference + 'a>>> {
+        let thread_refs = virtual_machine::all_threads(self.conn.as_ref())?
+            .threads
+            .iter()
+            .map(|&id| {
+                Box::new(JdwpThreadReference {
+                    conn: self.conn.clone(),
+                    thread_id: id,
+                }) as Box<dyn ThreadReference>
+            })
+            .collect();
+        Ok(thread_refs)
+    }
+
+    fn can_be_modified(&self) -> bool {
+        // TODO is there something we should check on the target, or is this true for all live debugging
+        true
+    }
+
+    fn suspend(&self) -> Result<()> {
+        virtual_machine::suspend(self.conn.as_ref())?;
+        Ok(())
+    }
+
+    fn resume(&self) -> Result<()> {
+        virtual_machine::resume(self.conn.as_ref())?;
+        Ok(())
     }
 }
 
@@ -121,7 +140,123 @@ impl ThreadReference for JdwpThreadReference {
     fn name(&self) -> Result<String> {
         Ok(thread_reference::name(self.conn.as_ref(), self.thread_id)?.name)
     }
+
+    fn frames(&self) -> Result<Vec<Box<dyn StackFrame>>> {
+        let frames = thread_reference::frames(self.conn.as_ref(), self.thread_id, 0, -1)?
+            .frames
+            .iter()
+            .map(|frame| {
+                Box::new(JdwpStackFrame {
+                    conn: self.conn.clone(),
+                    frame_id: frame.frame_id,
+                    location: frame.location,
+                }) as Box<dyn StackFrame>
+            })
+            .collect();
+        Ok(frames)
+    }
 }
+
+struct JdwpStackFrame {
+    conn: Rc<JdwpConnection>,
+    frame_id: u64, // TODO this should be a frameId type
+    location: Location,
+}
+
+impl StackFrame for JdwpStackFrame {
+    fn location(&self) -> Result<Box<dyn crate::model::Location>> {
+        Ok(Box::new(JdwpLocation {
+            conn: self.conn.clone(),
+            location: self.location,
+        }))
+    }
+}
+
+struct JdwpLocation {
+    conn: Rc<JdwpConnection>,
+    location: Location,
+}
+
+impl crate::model::Location for JdwpLocation {
+    fn line_number(&self) -> Result<Option<u32>> {
+        let reply = method::line_table(
+            self.conn.as_ref(),
+            self.location.class_id,
+            self.location.method_id,
+        );
+        let reply = match reply {
+            Ok(r) => r,
+            Err(_) => return Ok(None), // TODO this isn't right, we should only handle NATIVE_METHOD error code to Ok, rest should remain Err
+        };
+
+        // The JDWP documentation says that start and end will be -1 for a native method. In reality,
+        // it appears that the lineTable command will return a NATIVE_METHOD error code if the
+        // method is native, handled above. However, we handle this according to the documentation
+        // in case the behavior is not consistent.
+        if reply.start == -1 || reply.end == -1 {
+            return Ok(None);
+        }
+
+        let mut best_line = reply.lines[0].line_number; // TODO check before indexing
+        for line_entry in reply.lines {
+            // TODO as_ ?? Does that do what we want
+            if line_entry.line_code_index as u64 > self.location.location_idx {
+                break;
+            }
+            best_line = line_entry.line_number;
+        }
+        Ok(Some(best_line))
+    }
+
+    fn method(&self) -> Result<Box<dyn Method>> {
+        Ok(Box::new(JdwpMethod {
+            conn: self.conn.clone(),
+            method_id: self.location.method_id,
+            class_id: self.location.class_id,
+        }))
+    }
+
+    fn declaring_type(&self) -> Result<Box<dyn ReferenceType>> {
+        Ok(Box::new(JdwpReferenceType {
+            conn: self.conn.clone(),
+            class_id: self.location.class_id,
+        }))
+    }
+}
+
+struct JdwpReferenceType {
+    conn: Rc<JdwpConnection>,
+    class_id: u64, // This can also be an interface, right? // TODO this should be a classId type
+}
+
+impl ReferenceType for JdwpReferenceType {
+    fn name(&self) -> Result<String> {
+        let class_sig = reference_type::signature(self.conn.as_ref(), self.class_id)?.signature;
+        // TODO Assuming this sig is Lfully/qualified/Classname; for now
+        let s = class_sig.trim_start_matches('L').trim_end_matches(';');
+        Ok(s.replace('/', "."))
+    }
+}
+
+struct JdwpMethod {
+    conn: Rc<JdwpConnection>,
+    method_id: u64, // TODO this should be a methodId type
+    class_id: u64, // method_id is only unique for a single class // TODO this should be a classId type
+}
+
+impl TypeComponent for JdwpMethod {
+    fn name(&self) -> Result<String> {
+        // TODO probably want to use methods_with_generics?
+        for method in reference_type::methods(self.conn.as_ref(), self.class_id)?.methods {
+            if method.method_id == self.method_id {
+                return Ok(method.name);
+            }
+        }
+        Err(protocol_err("failed to find TODO"))
+    }
+}
+
+impl Method for JdwpMethod {}
 
 trait Serialize {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()>;
@@ -202,6 +337,12 @@ impl Deserialize for u64 {
     }
 }
 
+impl Deserialize for i64 {
+    fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
+        reader.read_i64::<BigEndian>()
+    }
+}
+
 impl Deserialize for String {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
         let str_len = reader.read_u32::<BigEndian>()?;
@@ -217,6 +358,7 @@ impl Deserialize for String {
 impl<T: Deserialize> Deserialize for Vec<T> {
     fn deserialize<R: Read>(reader: &mut R) -> Result<Self> {
         let count = reader.read_i32::<BigEndian>()?;
+        // TODO could we allocate a vec of an appropriate size using count?j
         let mut r = vec![];
         // TODO check > 0 ??
         for _ in 0..count {
@@ -254,7 +396,7 @@ fn protocol_err(msg: &str) -> std::io::Error {
     )
 }
 
-#[derive(Debug, FromPrimitive)]
+#[derive(Debug, FromPrimitive, Clone, Copy)]
 pub enum TypeTag {
     Class = 1,
     Interface = 2,
@@ -269,7 +411,7 @@ impl Deserialize for TypeTag {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Location {
     pub type_tag: TypeTag,
     pub class_id: u64,  // TODO
@@ -487,6 +629,28 @@ command_set! {
             name: String,
             signature: String,
             mod_bits: i32
+        }
+    }
+}
+
+command_set! {
+    set_name: method;
+    set_id: 6;
+    command {
+        command_fn: line_table;
+        command_id: 1;
+        args: {
+            ref_type: u64, // TODO this should be a referenceTypeID type
+            method_id: u64 // TODO this should be a methodId type
+        }
+        response_type: LineTableReply {
+            start: i64,
+            end: i64,
+            lines: Vec<LineTableEntry>
+        }
+        additional_type: LineTableEntry {
+            line_code_index: i64,
+            line_number: u32
         }
     }
 }

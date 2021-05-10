@@ -2,61 +2,38 @@ use libjdb::jdwp::reference_type;
 use libjdb::jdwp::thread_reference;
 use libjdb::jdwp::virtual_machine;
 use libjdb::jdwp::JdwpConnection;
+use libjdb::model::ThreadReference;
+use std::io::Result;
 
 fn main() {
-    {
-        let jvm = libjdb::attach_live("localhost:12345").unwrap();
-        for thread in jvm.all_threads().unwrap() {
-            println!("Thread {}", thread.name().unwrap());
-        }
+    let jvm = libjdb::attach_live("localhost:12345").unwrap();
+    if jvm.can_be_modified() {
+        jvm.suspend().unwrap();
     }
-    let j_conn = JdwpConnection::new("localhost:12345").unwrap();
-    println!("{:?}", virtual_machine::version(&j_conn).unwrap());
-    //let v = virtual_machine::all_classes(&j_conn).unwrap();
-    //println!("{:?}", v);
-    // TODO we want to be able to accept &str instead of a String, but we want
-    // to return a String
-    //let v = virtual_machine::classes_by_signature(&j_conn, "LExample;").unwrap();
-    //println!("{:?}", v);
-    virtual_machine::suspend(&j_conn).unwrap();
-    let v = virtual_machine::all_threads(&j_conn).unwrap();
-    println!("{:?}", v);
-    let v = virtual_machine::all_threads(&j_conn).unwrap();
-    for thread_id in v.threads {
-        print_stacktrace(thread_id, &j_conn)
+    for thread in jvm.all_threads().unwrap() {
+        print_stacktrace2(&*thread);
     }
-    virtual_machine::resume(&j_conn).unwrap();
+    if jvm.can_be_modified() {
+        jvm.resume().unwrap();
+    }
 }
 
-fn print_stacktrace(id: u64, conn: &JdwpConnection) {
-    let name_reply = thread_reference::name(conn, id).unwrap();
-    println!("Thread {}: {}", id, name_reply.name);
-    let frames_reply = thread_reference::frames(conn, id, 0, -1).unwrap();
-    for frame in frames_reply.frames {
-        let class_sig = reference_type::signature(conn, frame.location.class_id)
-            .unwrap()
-            .signature;
-        let method_name = get_method_name(conn, frame.location.class_id, frame.location.method_id);
+fn print_stacktrace2(thread: &dyn ThreadReference) -> Result<()> {
+    // TODO print thread id
+    println!("\nThread {}: {}", 999999, thread.name()?);
+    for frame in thread.frames()? {
+        let location = frame.location()?;
+        let line_num = match location.line_number()? {
+            Some(n) => format!(":{}", n),
+            None => String::new(),
+        };
         println!(
-            "    {}.{}()",
-            signature_to_classname(&class_sig),
-            method_name
+            "   {}.{}({})",
+            location.declaring_type()?.name()?,
+            location.method()?.name()?,
+            line_num
         );
     }
-    println!("");
-}
 
-fn signature_to_classname(sig: &str) -> String {
-    // Assuming this sig is Lfully/qualified/Classname; for now
-    let s = sig.trim_start_matches('L').trim_end_matches(';');
-    return s.replace('/', ".");
-}
-
-fn get_method_name(conn: &JdwpConnection, class_id: u64, method_id: u64) -> String {
-    for method in reference_type::methods(conn, class_id).unwrap().methods {
-        if method.method_id == method_id {
-            return method.name;
-        }
-    }
-    panic!("didn't find method name");
+    Ok(())
 }
