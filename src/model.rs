@@ -15,8 +15,14 @@ pub trait JavaVirtualMachine {
     fn resume(&self) -> Result<()>;
 }
 
+pub trait ObjectReference {
+    // TODO delete me? Not sure what the correct thing to return here is
+    fn unique_id(&self) -> Result<u64>;
+    fn reference_type(&self) -> Result<Box<dyn ReferenceType>>;
+}
+
 // TODO should this be a trait or a struct?
-pub trait ThreadReference {
+pub trait ThreadReference : ObjectReference {
     fn name(&self) -> Result<String>;
     fn frames(&self) -> Result<Vec<Box<dyn StackFrame>>>;
 }
@@ -33,6 +39,11 @@ pub trait Location {
 
 pub trait ReferenceType {
     fn name(&self) -> Result<String>;
+    fn fields(&self) -> Result<Vec<Box<dyn Field>>>;
+    // We have a problem. get_value probably only works with a particular concrete implementation
+    // of Field, namely, the one returned by fields(). How can we make sure that those are the same
+    // without spreading a hundred type parameters through every declaration?
+    fn get_value(&self, field: &dyn Field) -> Result<Value>;
 }
 
 pub trait TypeComponent {
@@ -40,3 +51,13 @@ pub trait TypeComponent {
 }
 
 pub trait Method: TypeComponent {}
+
+pub trait Field : TypeComponent {}
+
+pub enum Value {
+    Byte(i8),
+    Short(i16),
+    Integer(i32),
+    Long(i64),
+    // TODO more stuff goes here
+}

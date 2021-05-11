@@ -7,7 +7,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::net::ToSocketAddrs;
 
-use crate::model::ThreadReference;
+use crate::model::{ThreadReference, ObjectReference, Field, Value};
 use crate::model::{JavaVirtualMachine, Method, ReferenceType, StackFrame, TypeComponent};
 
 pub struct JdwpConnection {
@@ -136,6 +136,21 @@ struct JdwpThreadReference {
     thread_id: u64, // TODO should have a threadid type? or is this the thread id type?
 }
 
+impl ObjectReference for JdwpThreadReference {
+    // Does return type need to be a result?
+    fn unique_id(&self) -> Result<u64> {
+        Ok(self.thread_id)
+    }
+
+    fn reference_type(&self) -> Result<Box<dyn ReferenceType>> {
+        let reply = object_reference::reference_type(self.conn.as_ref(), self.thread_id)?;
+        Ok(Box::new(JdwpReferenceType {
+            conn: self.conn.clone(),
+            class_id: reply.type_id,
+        }) as Box<dyn ReferenceType>)
+    }
+}
+
 impl ThreadReference for JdwpThreadReference {
     fn name(&self) -> Result<String> {
         Ok(thread_reference::name(self.conn.as_ref(), self.thread_id)?.name)
@@ -148,7 +163,7 @@ impl ThreadReference for JdwpThreadReference {
             .map(|frame| {
                 Box::new(JdwpStackFrame {
                     conn: self.conn.clone(),
-                    frame_id: frame.frame_id,
+                    _frame_id: frame.frame_id,
                     location: frame.location,
                 }) as Box<dyn StackFrame>
             })
@@ -159,7 +174,7 @@ impl ThreadReference for JdwpThreadReference {
 
 struct JdwpStackFrame {
     conn: Rc<JdwpConnection>,
-    frame_id: u64, // TODO this should be a frameId type
+    _frame_id: u64, // TODO this should be a frameId type
     location: Location,
 }
 
@@ -236,7 +251,40 @@ impl ReferenceType for JdwpReferenceType {
         let s = class_sig.trim_start_matches('L').trim_end_matches(';');
         Ok(s.replace('/', "."))
     }
+    fn fields(&self) -> Result<Vec<Box<dyn Field>>> {
+        let fields = reference_type::fields(self.conn.as_ref(), self.class_id)?.fields.into_iter().map(
+            |field| Box::new(JdwpField {
+                conn: self.conn.clone(),
+                field_id: field.field_id,
+                class_id: self.class_id,
+                name: field.name,
+            }) as Box<dyn Field>
+        ).collect();
+        Ok(fields)
+    }
+
+    fn get_value(&self, field: &dyn Field) -> Result<Value> {
+        //reference_type::get_value(self.conn.as_ref(), self.class_id, vec![field.])
+
+
+    }
 }
+
+struct JdwpField {
+    conn: Rc<JdwpConnection>,
+    field_id: u64, // TODO this should be a fieldId type
+    class_id: u64, // method_id is only unique for a single class // TODO this should be a classId type
+    name: String,
+}
+
+impl TypeComponent for JdwpField {
+    // TODO should return ref to string owned by JdwpField
+    fn name(&self) -> Result<String> {
+        Ok(self.name.clone())
+    }
+}
+
+impl Field for JdwpField {}
 
 struct JdwpMethod {
     conn: Rc<JdwpConnection>,
@@ -453,7 +501,7 @@ macro_rules! command_set {
     ) => {
         pub mod $cmd_set_name {
             #[allow(unused_imports)]
-            use super::{Deserialize, JdwpConnection, Serialize, Location};
+            use super::{Deserialize, JdwpConnection, Serialize, Location, TypeTag};
             use std::io::{Cursor, Read};
             use std::io::Result;
 
@@ -616,6 +664,22 @@ command_set! {
         }
     }
     command {
+        command_fn: fields;
+        command_id: 4;
+        args: {
+            reference_type_id: u64 // TODO this should be reference_type_id type
+        }
+        response_type: FieldsReply {
+            fields: Vec<Field>
+        }
+        additional_type: Field {
+            field_id: u64, // TODO this should be a fieldId type
+            name: String,
+            signature: String,
+            mod_bits: i32
+        }
+    }
+    command {
         command_fn: methods;
         command_id: 5;
         args: {
@@ -625,6 +689,24 @@ command_set! {
             methods: Vec<Method>
         }
         additional_type: Method {
+            method_id: u64,  // TODO this should be a methodId type
+            name: String,
+            signature: String,
+            mod_bits: i32
+        }
+    }
+    command {
+        command_fn: get_value;
+        command_id: 6;
+        args: {
+            reference_type_id: u64, // TODO this should be reference_type_id type
+            fields: &[u64]
+        }
+        // TODO it would be nice not to have to wrap the Vec in another struct when we don't need to
+        response_type: GetValueReply {
+            values: Vec<Value>
+        }
+        additional_type: Value {
             method_id: u64,  // TODO this should be a methodId type
             name: String,
             signature: String,
@@ -651,6 +733,22 @@ command_set! {
         additional_type: LineTableEntry {
             line_code_index: i64,
             line_number: u32
+        }
+    }
+}
+
+command_set! {
+    set_name: object_reference;
+    set_id: 9;
+    command {
+        command_fn: reference_type;
+        command_id: 1;
+        args: {
+            object_id: u64 // TODO this should be an object_id type
+        }
+        response_type: ReferenceTypeReply {
+            type_tag: TypeTag,
+            type_id: u64 // TODO this should be a ReferenceTypeId type
         }
     }
 }
