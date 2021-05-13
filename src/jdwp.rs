@@ -7,7 +7,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::net::ToSocketAddrs;
 
-use crate::model::{ThreadReference, ObjectReference, Field, Value};
+use crate::model::{Field, ObjectReference, ThreadReference, Value};
 use crate::model::{JavaVirtualMachine, Method, ReferenceType, StackFrame, TypeComponent};
 
 pub struct JdwpConnection {
@@ -114,12 +114,10 @@ impl JavaVirtualMachine for JdwpJavaVirtualMachine {
         let thread_refs = virtual_machine::all_threads(self.conn.as_ref())?
             .threads
             .iter()
-            .map(|&id|
-                JdwpThreadReference {
-                    conn: self.conn.clone(),
-                    thread_id: id,
-                }
-            )
+            .map(|&id| JdwpThreadReference {
+                conn: self.conn.clone(),
+                thread_id: id,
+            })
             .collect();
         Ok(thread_refs)
     }
@@ -170,10 +168,10 @@ impl ThreadReference<JdwpJavaVirtualMachine> for JdwpThreadReference {
             .frames
             .iter()
             .map(|frame| JdwpStackFrame {
-                    conn: self.conn.clone(),
-                    _frame_id: frame.frame_id,
-                    location: frame.location,
-                })
+                conn: self.conn.clone(),
+                _frame_id: frame.frame_id,
+                location: frame.location,
+            })
             .collect();
         Ok(frames)
     }
@@ -259,14 +257,16 @@ impl ReferenceType<JdwpJavaVirtualMachine> for JdwpReferenceType {
         Ok(s.replace('/', "."))
     }
     fn fields(&self) -> Result<Vec<JdwpField>> {
-        let fields = reference_type::fields(self.conn.as_ref(), self.class_id)?.fields.into_iter().map(
-            |field| JdwpField {
+        let fields = reference_type::fields(self.conn.as_ref(), self.class_id)?
+            .fields
+            .into_iter()
+            .map(|field| JdwpField {
                 conn: self.conn.clone(),
                 field_id: field.field_id,
                 class_id: self.class_id,
                 name: field.name,
-            }
-        ).collect();
+            })
+            .collect();
         Ok(fields)
     }
 

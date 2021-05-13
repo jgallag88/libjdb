@@ -1,12 +1,13 @@
 use std::io::Result;
 
-pub trait JavaVirtualMachine where
+pub trait JavaVirtualMachine
+where
     Self::Field: Field,
     Self::Location: Location<Self>,
     Self::Method: Method<Self>,
     Self::ReferenceType: ReferenceType<Self>,
     Self::StackFrame: StackFrame<Self>,
-    Self::ThreadReference: ThreadReference<Self>
+    Self::ThreadReference: ThreadReference<Self>,
 {
     type Field;
     type Location;
@@ -40,7 +41,7 @@ pub trait ObjectReference<Jvm: JavaVirtualMachine + ?Sized> {
     fn reference_type(&self) -> Result<Box<dyn ReferenceType<Jvm>>>;
 }
 
-pub trait ThreadReference<Jvm: JavaVirtualMachine + ?Sized> : ObjectReference<Jvm> {
+pub trait ThreadReference<Jvm: JavaVirtualMachine + ?Sized>: ObjectReference<Jvm> {
     fn name(&self) -> Result<String>;
     fn frames(&self) -> Result<Vec<Jvm::StackFrame>>;
 }
@@ -67,7 +68,7 @@ pub trait TypeComponent {
 
 pub trait Method<Jvm: JavaVirtualMachine + ?Sized>: TypeComponent {}
 
-pub trait Field : TypeComponent {}
+pub trait Field: TypeComponent {}
 
 pub enum Value {
     Byte(i8),
