@@ -17,8 +17,9 @@ pub mod model;
 //    jdwpJvm.all_threads().unwrap()[0]
 //}
 
-pub fn attach_live<A: ToSocketAddrs>(jvm_debug_addr: A) -> Result<Box<dyn JavaVirtualMachine>> {
-    Ok(Box::new(JdwpJavaVirtualMachine::new(JdwpConnection::new(
+// TODO get rid of boxing?
+pub fn attach_live<A: ToSocketAddrs>(jvm_debug_addr: A) -> Result<JdwpJavaVirtualMachine> {
+    Ok(JdwpJavaVirtualMachine::new(JdwpConnection::new(
         jvm_debug_addr,
-    )?)))
+    )?))
 }

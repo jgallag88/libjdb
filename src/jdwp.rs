@@ -88,6 +88,8 @@ impl JdwpConnection {
     }
 }
 
+// TODO this struct gets used in a lot of type parameters. Maybe name it something shorter? But then
+// it would be less consistent.
 pub struct JdwpJavaVirtualMachine {
     conn: Rc<JdwpConnection>,
 }
@@ -101,16 +103,23 @@ impl JdwpJavaVirtualMachine {
 }
 
 impl JavaVirtualMachine for JdwpJavaVirtualMachine {
-    fn all_threads<'a>(&'a self) -> Result<Vec<Box<dyn ThreadReference + 'a>>> {
+    type Field = JdwpField;
+    type Location = JdwpLocation;
+    type Method = JdwpMethod;
+    type ReferenceType = JdwpReferenceType;
+    type ThreadReference = JdwpThreadReference;
+    type StackFrame = JdwpStackFrame;
+
+    fn all_threads(&self) -> Result<Vec<JdwpThreadReference>> {
         let thread_refs = virtual_machine::all_threads(self.conn.as_ref())?
             .threads
             .iter()
-            .map(|&id| {
-                Box::new(JdwpThreadReference {
+            .map(|&id|
+                JdwpThreadReference {
                     conn: self.conn.clone(),
                     thread_id: id,
-                }) as Box<dyn ThreadReference>
-            })
+                }
+            )
             .collect();
         Ok(thread_refs)
     }
@@ -131,68 +140,66 @@ impl JavaVirtualMachine for JdwpJavaVirtualMachine {
     }
 }
 
-struct JdwpThreadReference {
+pub struct JdwpThreadReference {
     conn: Rc<JdwpConnection>,
     thread_id: u64, // TODO should have a threadid type? or is this the thread id type?
 }
 
-impl ObjectReference for JdwpThreadReference {
+impl ObjectReference<JdwpJavaVirtualMachine> for JdwpThreadReference {
     // Does return type need to be a result?
     fn unique_id(&self) -> Result<u64> {
         Ok(self.thread_id)
     }
 
-    fn reference_type(&self) -> Result<Box<dyn ReferenceType>> {
+    fn reference_type(&self) -> Result<Box<dyn ReferenceType<JdwpJavaVirtualMachine>>> {
         let reply = object_reference::reference_type(self.conn.as_ref(), self.thread_id)?;
         Ok(Box::new(JdwpReferenceType {
             conn: self.conn.clone(),
             class_id: reply.type_id,
-        }) as Box<dyn ReferenceType>)
+        }) as Box<dyn ReferenceType<JdwpJavaVirtualMachine>>)
     }
 }
 
-impl ThreadReference for JdwpThreadReference {
+impl ThreadReference<JdwpJavaVirtualMachine> for JdwpThreadReference {
     fn name(&self) -> Result<String> {
         Ok(thread_reference::name(self.conn.as_ref(), self.thread_id)?.name)
     }
 
-    fn frames(&self) -> Result<Vec<Box<dyn StackFrame>>> {
+    fn frames(&self) -> Result<Vec<JdwpStackFrame>> {
         let frames = thread_reference::frames(self.conn.as_ref(), self.thread_id, 0, -1)?
             .frames
             .iter()
-            .map(|frame| {
-                Box::new(JdwpStackFrame {
+            .map(|frame| JdwpStackFrame {
                     conn: self.conn.clone(),
                     _frame_id: frame.frame_id,
                     location: frame.location,
-                }) as Box<dyn StackFrame>
-            })
+                })
             .collect();
         Ok(frames)
     }
 }
 
-struct JdwpStackFrame {
+pub struct JdwpStackFrame {
     conn: Rc<JdwpConnection>,
     _frame_id: u64, // TODO this should be a frameId type
     location: Location,
 }
 
-impl StackFrame for JdwpStackFrame {
-    fn location(&self) -> Result<Box<dyn crate::model::Location>> {
-        Ok(Box::new(JdwpLocation {
+impl StackFrame<JdwpJavaVirtualMachine> for JdwpStackFrame {
+    fn location(&self) -> Result<JdwpLocation> {
+        Ok(JdwpLocation {
             conn: self.conn.clone(),
             location: self.location,
-        }))
+        })
     }
 }
 
-struct JdwpLocation {
+pub struct JdwpLocation {
     conn: Rc<JdwpConnection>,
     location: Location,
 }
 
-impl crate::model::Location for JdwpLocation {
+impl crate::model::Location<JdwpJavaVirtualMachine> for JdwpLocation {
     fn line_number(&self) -> Result<Option<u32>> {
         let reply = method::line_table(
             self.conn.as_ref(),
@@ -223,54 +230,53 @@ impl crate::model::Location for JdwpLocation {
         Ok(Some(best_line))
     }
 
-    fn method(&self) -> Result<Box<dyn Method>> {
-        Ok(Box::new(JdwpMethod {
+    fn method(&self) -> Result<JdwpMethod> {
+        Ok(JdwpMethod {
             conn: self.conn.clone(),
             method_id: self.location.method_id,
             class_id: self.location.class_id,
-        }))
+        })
     }
 
-    fn declaring_type(&self) -> Result<Box<dyn ReferenceType>> {
-        Ok(Box::new(JdwpReferenceType {
+    fn declaring_type(&self) -> Result<JdwpReferenceType> {
+        Ok(JdwpReferenceType {
             conn: self.conn.clone(),
             class_id: self.location.class_id,
-        }))
+        })
     }
 }
 
-struct JdwpReferenceType {
+pub struct JdwpReferenceType {
     conn: Rc<JdwpConnection>,
     class_id: u64, // This can also be an interface, right? // TODO this should be a classId type
 }
 
-impl ReferenceType for JdwpReferenceType {
+impl ReferenceType<JdwpJavaVirtualMachine> for JdwpReferenceType {
     fn name(&self) -> Result<String> {
         let class_sig = reference_type::signature(self.conn.as_ref(), self.class_id)?.signature;
         // TODO Assuming this sig is Lfully/qualified/Classname; for now
         let s = class_sig.trim_start_matches('L').trim_end_matches(';');
         Ok(s.replace('/', "."))
     }
-    fn fields(&self) -> Result<Vec<Box<dyn Field>>> {
+    fn fields(&self) -> Result<Vec<JdwpField>> {
         let fields = reference_type::fields(self.conn.as_ref(), self.class_id)?.fields.into_iter().map(
-            |field| Box::new(JdwpField {
+            |field| JdwpField {
                 conn: self.conn.clone(),
                 field_id: field.field_id,
                 class_id: self.class_id,
                 name: field.name,
-            }) as Box<dyn Field>
+            }
         ).collect();
         Ok(fields)
     }
 
-    fn get_value(&self, field: &dyn Field) -> Result<Value> {
-        //reference_type::get_value(self.conn.as_ref(), self.class_id, vec![field.])
-
-
+    fn get_value(&self, field: &JdwpField) -> Result<Value> {
+        //reference_type::get_value(self.conn.as_ref(), self.class_id, vec![field.field_id])?;
+        unimplemented!();
     }
 }
 
-struct JdwpField {
+pub struct JdwpField {
     conn: Rc<JdwpConnection>,
     field_id: u64, // TODO this should be a fieldId type
     class_id: u64, // method_id is only unique for a single class // TODO this should be a classId type
@@ -286,7 +292,7 @@ impl TypeComponent for JdwpField {
 
 impl Field for JdwpField {}
 
-struct JdwpMethod {
+pub struct JdwpMethod {
     conn: Rc<JdwpConnection>,
     method_id: u64, // TODO this should be a methodId type
     class_id: u64, // method_id is only unique for a single class // TODO this should be a classId type
@@ -304,7 +310,7 @@ impl TypeComponent for JdwpMethod {
     }
 }
 
-impl Method for JdwpMethod {}
+impl Method<JdwpJavaVirtualMachine> for JdwpMethod {}
 
 trait Serialize {
     fn serialize<W: Write>(self, writer: &mut W) -> Result<()>;
@@ -695,24 +701,24 @@ command_set! {
             mod_bits: i32
         }
     }
-    command {
-        command_fn: get_value;
-        command_id: 6;
-        args: {
-            reference_type_id: u64, // TODO this should be reference_type_id type
-            fields: &[u64]
-        }
-        // TODO it would be nice not to have to wrap the Vec in another struct when we don't need to
-        response_type: GetValueReply {
-            values: Vec<Value>
-        }
-        additional_type: Value {
-            method_id: u64,  // TODO this should be a methodId type
-            name: String,
-            signature: String,
-            mod_bits: i32
-        }
-    }
+    // command {
+    //     command_fn: get_value;
+    //     command_id: 6;
+    //     args: {
+    //         reference_type_id: u64, // TODO this should be reference_type_id type
+    //         fields: &[u64]
+    //     }
+    //     // TODO it would be nice not to have to wrap the Vec in another struct when we don't need to
+    //     response_type: GetValueReply {
+    //         values: Vec<Value>
+    //     }
+    //     additional_type: Value {
+    //         method_id: u64,  // TODO this should be a methodId type
+    //         name: String,
+    //         signature: String,
+    //         mod_bits: i32
+    //     }
+    // }
 }
 
 command_set! {
